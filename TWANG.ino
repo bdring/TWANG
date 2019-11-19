@@ -19,7 +19,7 @@
 	
 	
 */
-#define VERSION "2018-04-16"
+#define VERSION "2018-12-28"
 
 // Required libs
 #include "FastLED.h"
@@ -96,8 +96,9 @@ enum stages {
 
 int score;
 long stageStartTime;               // Stores the time the stage changed for stages that are time based
-int playerPosition;                // Stores the player position
+int playerPosition;                // Stores the player position in virtual space
 int playerPositionModifier;        // +/- adjustment to player position
+int playerPositionLED;             // Stores the player position in LED space
 bool playerAlive;
 long killTime;
 uint8_t lives;
@@ -263,7 +264,11 @@ void loop() {
                 }
             }
 
-            if(inLava(playerPosition)){
+            // Now that all movement is taken care of, compute player's 
+            // position in LED space once, for use in hit detection, etc
+            playerPositionLED = getLED(playerPosition);
+
+            if(inLava(playerPositionLED)){
                 die();
             }
 
@@ -641,25 +646,26 @@ void tickEnemies(){
     for(int i = 0; i<ENEMY_COUNT; i++){
         if(enemyPool[i].Alive()){
             enemyPool[i].Tick();
+            int enemyPositionLED = getLED(enemyPool[i]._pos);
             // Hit attack?
             if(attacking){
-                if(enemyPool[i]._pos > playerPosition-(attack_width/2) && enemyPool[i]._pos < playerPosition+(attack_width/2)){
+                if(enemyPositionLED >= getLED(playerPosition-(attack_width/2)) && enemyPositionLED <= getLED(playerPosition+(attack_width/2))){
                    enemyPool[i].Kill();
                    SFXkill();
                 }
             }
-            if(inLava(enemyPool[i]._pos)){
+            if(inLava(enemyPositionLED)){
                 enemyPool[i].Kill();
                 SFXkill();
             }
             // Draw (if still alive)
             if(enemyPool[i].Alive()) {
-                leds[getLED(enemyPool[i]._pos)] = CRGB(255, 0, 0);
+                leds[enemyPositionLED] = CRGB(255, 0, 0);
             }
             // Hit player?
             if(
-                (enemyPool[i].playerSide == 1 && enemyPool[i]._pos <= playerPosition) ||
-                (enemyPool[i].playerSide == -1 && enemyPool[i]._pos >= playerPosition)
+                (enemyPool[i].playerSide == 1 && enemyPositionLED <= playerPositionLED) ||
+                (enemyPool[i].playerSide == -1 && enemyPositionLED >= playerPositionLED)
             ){
                 die();
                 return;
@@ -700,8 +706,8 @@ void tickBoss(){
 }
 
 void drawPlayer(){
-    leds[getLED(playerPosition)] = CRGB(0, 255, 0);
-}
+    leds[playerPositionLED] = CRGB(0, 255, 0);
+} 
 
 void drawExit(){
     if(!boss.Alive()){
@@ -954,10 +960,10 @@ void drawAttack(){
     }
     if(n > 90) {
         n = 255;
-        leds[getLED(playerPosition)] = CRGB(255, 255, 255);
+        leds[playerPositionLED] = CRGB(255, 255, 255);
     }else{
         n = 0;
-        leds[getLED(playerPosition)] = CRGB(0, 255, 0);
+        leds[playerPositionLED] = CRGB(0, 255, 0);
     }
     leds[getLED(playerPosition-(attack_width/2))] = CRGB(n, n, 255);
     leds[getLED(playerPosition+(attack_width/2))] = CRGB(n, n, 255);
@@ -968,14 +974,18 @@ int getLED(int pos){
     return constrain((int)map(pos, 0, VIRTUAL_LED_COUNT, 0, user_settings.led_count-1), 0, user_settings.led_count-1);
 }
 
-bool inLava(int pos){
+// Note that you must pass the position in LED space here,
+// as hit detection is done in this space
+bool inLava(int positionLED){
     // Returns if the player is in active lava
     int i;
     Lava LP;
     for(i = 0; i<LAVA_COUNT; i++){
         LP = lavaPool[i];
         if(LP.Alive() && LP._state == Lava::ON){
-            if(LP._left < pos && LP._right > pos) return true;
+            int left_led = getLED(LP._left),
+                right_led = getLED(LP._right);
+            if(left_led <= positionLED && right_led >= positionLED) return true;
         }
     }
     return false;
